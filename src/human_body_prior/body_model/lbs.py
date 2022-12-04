@@ -1,24 +1,19 @@
 # -*- coding: utf-8 -*-
+
+# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is
+# holder of all proprietary rights on this computer program.
+# You can only use this computer program if you have closed
+# a license agreement with MPG or you get the right to use the computer
+# program from someone who is authorized to grant you that right.
+# Any use of the computer program without a valid license is prohibited and
+# liable to prosecution.
 #
-# Copyright (C) 2019 Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG),
-# acting on behalf of its Max Planck Institute for Intelligent Systems and the
-# Max Planck Institute for Biological Cybernetics. All rights reserved.
+# Copyright©2019 Max-Planck-Gesellschaft zur Förderung
+# der Wissenschaften e.V. (MPG). acting on behalf of its Max Planck Institute
+# for Intelligent Systems and the Max Planck Institute for Biological
+# Cybernetics. All rights reserved.
 #
-# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is holder of all proprietary rights
-# on this computer program. You can only use this computer program if you have closed a license agreement
-# with MPG or you get the right to use the computer program from someone who is authorized to grant you that right.
-# Any use of the computer program without a valid license is prohibited and liable to prosecution.
 # Contact: ps-license@tuebingen.mpg.de
-#
-#
-# If you use this code in a research publication please consider citing the following:
-#
-# Expressive Body Capture: 3D Hands, Face, and Body from a Single Image <https://arxiv.org/abs/1904.05866>
-#
-#
-# Code Developed by:
-# Vassilis Choutas <https://vchoutas.github.io/>
-#
 
 from __future__ import absolute_import
 from __future__ import print_function
@@ -200,7 +195,7 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, parents,
         joints: torch.tensor BxJx3
             The joints of the model
     '''
-
+    
     batch_size = max(betas.shape[0], pose.shape[0])
     device = betas.device
 
@@ -224,7 +219,8 @@ def lbs(betas, pose, v_template, shapedirs, posedirs, J_regressor, parents,
 
         pose_feature = (rot_mats[:, 1:, :, :] - ident).view([batch_size, -1])
         # (N x P) x (P, V * 3) -> N x V x 3
-        pose_offsets = torch.matmul(pose_feature, posedirs).view(batch_size, -1, 3)
+        pose_offsets = torch.matmul(pose_feature, posedirs) \
+            .view(batch_size, -1, 3)
     else:
         pose_feature = pose[:, 1:].view(batch_size, -1, 3, 3) - ident
         rot_mats = pose.view(batch_size, -1, 3, 3)
@@ -270,8 +266,8 @@ def vertices2joints(J_regressor, vertices):
     torch.tensor BxJx3
         The location of the joints
     '''
-
-    return torch.einsum('bik,ji->bjk', [vertices, J_regressor])
+    return torch.matmul(J_regressor.unsqueeze(0),vertices)
+    # return torch.einsum('bik,ji->bjk', [vertices, J_regressor])
 
 
 def blend_shapes(betas, shape_disps):

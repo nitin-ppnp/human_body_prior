@@ -65,3 +65,6 @@ class RigidObjectModel(nn.Module):
         res = res_class
 
         return res
+
+# m  = RigidObjectModel('/ps/scratch/grab/data/object_meshes/contact_meshes/cup.ply', batch_size=10)
+# v = m(torch.randn([10,3]), torch.randn([10,3]))

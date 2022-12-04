@@ -21,27 +21,22 @@
 #
 # 2018.01.02
 
-import unittest
-
-from human_body_prior.train.vposer_smpl import VPoser
-from human_body_prior.tools.omni_tools import copy2cpu as c2c
-from configer import Configer
-
 import numpy as np
 
-class TestDistances(unittest.TestCase):
-    def setUp(self):
-        import torch
-        torch.manual_seed(100)
+def show_image(img_ndarray):
+    '''
+    Visualize images resulted from calling vis_smpl_params in Jupyternotebook
+    :param img_ndarray: Nx400x400x3
+    '''
+    import matplotlib.pyplot as plt
+    import cv2
+    fig = plt.figure(figsize=(4, 4), dpi=300)
+    ax = fig.gca()
 
-    def test_samples(self):
-        ''' given the same network weights, the random pose generator must produce the same pose for a seed'''
-        ps = Configer(default_ps_fname='../human_body_prior/train/vposer_smpl_defaults.ini')
-        vposer = VPoser(num_neurons=ps.num_neurons, latentD=ps.latentD, data_shape = ps.data_shape)
-        body_pose_rnd = vposer.sample_poses(num_poses=1, seed=100)
+    img = img_ndarray.astype(np.uint8)
+    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+    ax.imshow(img)
+    plt.axis('off')
 
-        body_pose_gt = np.load('samples/body_pose_rnd.npz')['data']
-        self.assertAlmostEqual(np.square((c2c(body_pose_rnd) - body_pose_gt)).sum(), 0.0)
-
-if __name__ == '__main__':
-    unittest.main()
+    # fig.canvas.draw()
+    # return True

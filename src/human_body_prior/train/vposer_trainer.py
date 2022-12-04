@@ -1,62 +1,41 @@
-# -*- coding: utf-8 -*-
-#
-# Copyright (C) 2019 Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG),
-# acting on behalf of its Max Planck Institute for Intelligent Systems and the
-# Max Planck Institute for Biological Cybernetics. All rights reserved.
-#
-# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is holder of all proprietary rights
-# on this computer program. You can only use this computer program if you have closed a license agreement
-# with MPG or you get the right to use the computer program from someone who is authorized to grant you that right.
-# Any use of the computer program without a valid license is prohibited and liable to prosecution.
-# Contact: ps-license@tuebingen.mpg.de
-#
-#
-# If you use this code in a research publication please consider citing the following:
-#
-# Expressive Body Capture: 3D Hands, Face, and Body from a Single Image <https://arxiv.org/abs/1904.05866>
-#
-#
-# Code Developed by:
-# Nima Ghorbani <https://nghorbani.github.io/>
-#
-# 2020.12.12
-
-# from pytorch_lightning import Trainer
-
+import pandas as pd
+import numpy as np
 import glob
 import os
 import os.path as osp
 from datetime import datetime as dt
-from pytorch_lightning.plugins import DDPPlugin
+from sklearn.metrics import classification_report, accuracy_score
 
-import numpy as np
 import pytorch_lightning as pl
 import torch
-from human_body_prior.body_model.body_model import BodyModel
-from human_body_prior.data.dataloader import VPoserDS
-from human_body_prior.data.prepare_data import dataset_exists
-from human_body_prior.data.prepare_data import prepare_vposer_datasets
-from human_body_prior.models.vposer_model import VPoser
-from human_body_prior.tools.angle_continuous_repres import geodesic_loss_R
-from human_body_prior.tools.configurations import load_config, dump_config
 from human_body_prior.tools.omni_tools import copy2cpu as c2c
-from human_body_prior.tools.omni_tools import get_support_data_dir
 from human_body_prior.tools.omni_tools import log2file
 from human_body_prior.tools.omni_tools import make_deterministic
 from human_body_prior.tools.omni_tools import makepath
-from human_body_prior.tools.rotation_tools import aa2matrot
-from human_body_prior.visualizations.training_visualization import vposer_trainer_renderer
-from pytorch_lightning.callbacks import LearningRateMonitor
-from pytorch_lightning.callbacks.early_stopping import EarlyStopping
-
+# from pytorch_lightning import Trainer
 from pytorch_lightning.callbacks.model_checkpoint import ModelCheckpoint
-from pytorch_lightning.core import LightningModule
 from pytorch_lightning.loggers import TensorBoardLogger
-from pytorch_lightning.utilities import rank_zero_only
+
 from torch import optim as optim_module
 from torch.optim import lr_scheduler as lr_sched_module
 from torch.utils.data import DataLoader
+from pytorch_lightning.callbacks.early_stopping import EarlyStopping
+from human_body_prior.tools.angle_continuous_repres import geodesic_loss_R
+from human_body_prior.body_model.body_model import BodyModel
+from human_body_prior.tools.rotation_tools import aa2matrot
 
+from human_body_prior.tools.configurations import load_config, dump_config
+from human_body_prior.models.vposer_model import VPoser
+
+from pytorch_lightning.callbacks import LearningRateLogger
+from human_body_prior.tools.omni_tools import get_support_data_dir
+from human_body_prior.data.prepare_data import prepare_vposer_datasets
+from human_body_prior.data.dataloader import VPoserDS
+import pytorch_lightning as pl
+from pytorch_lightning.core import LightningModule
+from human_body_prior.data.prepare_data import dataset_exists
+from pytorch_lightning.utilities import rank_zero_only
+from human_body_prior.visualizations.training_visualization import vposer_trainer_renderer
 
 class VPoserTrainer(LightningModule):
     """
@@ -88,7 +67,7 @@ class VPoserTrainer(LightningModule):
 
         with torch.no_grad():
 
-            self.bm_train = BodyModel(vp_ps.body_model.bm_fname)
+            self.bm_train = BodyModel(vp_ps.body_model.bm_path)
 
         if vp_ps.logging.render_during_training:
             self.renderer = vposer_trainer_renderer(self.bm_train, vp_ps.logging.num_bodies_to_display)
@@ -294,16 +273,16 @@ def train_vposer_once(_config):
     dump_config(model.vp_ps, osp.join(model.work_dir, '{}.yaml'.format(model.expr_id)))
 
     logger = TensorBoardLogger(model.work_dir, name='tensorboard')
-    lr_monitor = LearningRateMonitor()
+    lr_logger = LearningRateLogger()
 
     snapshots_dir = osp.join(model.work_dir, 'snapshots')
     checkpoint_callback = ModelCheckpoint(
-        dirpath=makepath(snapshots_dir, isfile=True),
-        filename="%s_{epoch:02d}_{val_loss:.2f}" % model.expr_id,
+        filepath=makepath(snapshots_dir, "{epoch:02d}_{val_loss:.2f}", isfile=True),
         save_top_k=1,
         verbose=True,
         monitor='val_loss',
         mode='min',
+        prefix='%s_'%model.expr_id
     )
     early_stop_callback = EarlyStopping(**model.vp_ps.train_parms.early_stopping)
 
@@ -314,7 +293,7 @@ def train_vposer_once(_config):
             resume_from_checkpoint = available_ckpts[-1]
             model.text_logger('Resuming the training from {}'.format(resume_from_checkpoint))
 
-    trainer = pl.Trainer(gpus=1,
+    trainer = pl.Trainer(gpus=4,
                          weights_summary='top',
                          distributed_backend = 'ddp',
                          # replace_sampler_ddp=False,
@@ -325,13 +304,40 @@ def train_vposer_once(_config):
                          # limit_train_batches=0.02,
                          # limit_val_batches=0.02,
                          # num_sanity_val_steps=2,
-                         plugins=[DDPPlugin(find_unused_parameters=False)],
-
-                         callbacks=[lr_monitor, early_stop_callback, checkpoint_callback],
-
+                         callbacks=[lr_logger],
+                         checkpoint_callback=checkpoint_callback,
                          max_epochs=model.vp_ps.train_parms.num_epochs,
                          logger=logger,
+                         early_stop_callback=early_stop_callback,
                          resume_from_checkpoint=resume_from_checkpoint
                          )
 
     trainer.fit(model)
+
+
+def main():
+    expr_id = 'V02_05'
+
+    default_ps_fname = glob.glob(osp.join(osp.dirname(__file__), '*.yaml'))[0]
+
+    vp_ps = load_config(default_ps_fname)
+
+    vp_ps.train_parms.batch_size = 128
+
+    vp_ps.general.expr_id = expr_id
+
+    total_jobs = []
+    total_jobs.append(vp_ps.toDict().copy())
+
+    print('#training_jobs to be done: {}'.format(len(total_jobs)))
+    if len(total_jobs) == 0:
+        print('No jobs to be done')
+        return
+
+    for job in total_jobs:
+        train_vposer_once(job)
+    # mixed_map(train_vposer, total_jobs, bid_amount=10, jobs_per_instance=1, max_mem=64, cpu_count=2, gpu_count=1, use_highend_gpus=True, username='nghorbani')
+
+
+if __name__ == '__main__':
+    main()
